@@ -1648,6 +1648,22 @@
           "children": [
             {
               "title": "**Definition:** Lightweight user-space threads (goroutines) communicating via typed pipes (channels), composed with `select` for fan-in/timeouts. \"Don't communicate by sharing memory; share memory by communicating.\"<br/>**Trade-offs:** Cheap to spawn (10s of thousands routine) and easy to reason about per-goroutine, but easy to leak goroutines or deadlock on unbuffered channels.<br/>**Application Example:** A worker pool: producer → buffered channel → N consumer goroutines, all cancellable through a shared `context.Context` passed via a `select` arm."
+            },
+            {
+              "title": "Goroutine leaks",
+              "children": [
+                {
+                  "title": "**Definition:** A goroutine that's been started but never reaches `return` because the channel/operation it's waiting on never completes. Each leaked goroutine pins its stack (~2 KB minimum, growing on demand) plus every variable it captured, so the heap and `runtime.NumGoroutine()` count creep upward forever.<br/>**Trade-offs:** Cheap goroutines (`go f()` in one keystroke) make leaking accidental — there's no compiler warning, no runtime cap, and `pprof goroutine` is the only reliable diagnosis. The runtime only catches **total** deadlocks (when *every* goroutine is blocked); a single leaked goroutine alongside healthy ones is invisible to the scheduler.<br/>**Application Example:** An HTTP handler does `go func() { ch <- expensiveCall() }()` to fan-out work, but the parent returns early on context timeout without ever reading `ch`. The send blocks forever because the channel is unbuffered and there's no reader. Fix: pass `ctx` to the goroutine and use `select { case ch <- result: case <-ctx.Done(): }` so the send aborts cleanly when the request is cancelled."
+                }
+              ]
+            },
+            {
+              "title": "Unbuffered channel deadlocks",
+              "children": [
+                {
+                  "title": "**Definition:** An unbuffered channel **synchronises** sender and receiver — `ch <- v` blocks until someone is reading, `<-ch` blocks until someone is writing. If both sides aren't ready at the same time, the goroutine hangs.<br/>**Trade-offs:** Perfect for handoffs and coordination (the send completes only once the value has been observed), but a missing reader or sender hangs forever. Go's runtime can detect a *full* deadlock (`fatal error: all goroutines are asleep — deadlock!`), but the much more common case — **one** goroutine stuck while others run normally — produces no error at all, just a leak.<br/>**Application Example:** A worker calls `done <- true` to signal completion, but the dispatcher loop already exited after collecting all results — the worker is stuck forever on the send. Two fixes: (1) use a 1-buffered channel `make(chan bool, 1)` so the send always succeeds, or (2) wrap the send in `select { case done <- true: case <-ctx.Done(): }` so cancellation unblocks it. Rule of thumb: use unbuffered channels for synchronisation, buffered (size 1) for fire-and-forget signals."
+                }
+              ]
             }
           ]
         },
