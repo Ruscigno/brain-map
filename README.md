@@ -4,7 +4,7 @@ An interactive, MindMeister-style mind map of **system-design interview concepts
 
 The map is rendered with [markmap](https://markmap.js.org/) and content is driven by a single structured JSON file, so you can grow the tree without touching the frontend code.
 
-![Tree-style mind map preview](docs/image.png)
+![Mind-map preview](docs/preview.png)
 
 ## Quick start (Docker)
 
