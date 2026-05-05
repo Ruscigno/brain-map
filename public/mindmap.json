@@ -1644,10 +1644,32 @@
       "note": "Senior-level Go interview classics — concurrency, the runtime, idioms, and the famous gotchas.",
       "children": [
         {
-          "title": "Concurrency (goroutines, channels, select)",
+          "title": "Concurrency",
+          "note": "Go's CSP-inspired model: lightweight goroutines coordinated through typed channels, with `select` as the multi-way switch. Motto: *\"Don't communicate by sharing memory; share memory by communicating.\"*",
           "children": [
             {
-              "title": "**Definition:** Lightweight user-space threads (goroutines) communicating via typed pipes (channels), composed with `select` for fan-in/timeouts. \"Don't communicate by sharing memory; share memory by communicating.\"<br/>**Trade-offs:** Cheap to spawn (10s of thousands routine) and easy to reason about per-goroutine, but easy to leak goroutines or deadlock on unbuffered channels.<br/>**Application Example:** A worker pool: producer → buffered channel → N consumer goroutines, all cancellable through a shared `context.Context` passed via a `select` arm."
+              "title": "Goroutines",
+              "children": [
+                {
+                  "title": "**Definition:** Lightweight user-space threads scheduled by the Go runtime onto a small pool of OS threads (sized by `GOMAXPROCS`). Spawned by putting the keyword `go` in front of any function call.<br/>**Trade-offs:** Tiny initial stack (~2 KB) that grows on demand makes 100k+ concurrent goroutines cheap, but the runtime exposes no per-goroutine ID, no thread-locals, and no priority — all coordination must go through channels or `sync` primitives, and a leaked goroutine has no built-in cap.<br/>**Application Example:** `net/http` handles every incoming request in its own goroutine for free, so a 10k-RPS service can have tens of thousands of in-flight goroutines without strain — your code just writes the handler as if it were single-threaded."
+                }
+              ]
+            },
+            {
+              "title": "Channels",
+              "children": [
+                {
+                  "title": "**Definition:** Typed first-class pipes that pass values between goroutines safely. `make(chan T)` is **unbuffered** — a synchronous handoff where send and receive rendezvous. `make(chan T, N)` is **buffered** — sends succeed without a reader as long as the buffer has room.<br/>**Trade-offs:** Forces explicit communication so the value being passed needs no extra mutex, but every channel op is a runtime call — for very hot paths a `sync.Mutex`-protected slice or a `sync.Pool` can be measurably faster than a channel. Closed channels send forever-unblocking zero values to receivers; sending on a closed channel panics.<br/>**Application Example:** A producer-consumer pipeline: an HTTP handler pushes onto `jobs := make(chan Job, 100)` and a fixed pool of worker goroutines reads from it. Back-pressure is automatic — when the buffer fills the producer blocks until workers drain it."
+                }
+              ]
+            },
+            {
+              "title": "Select",
+              "children": [
+                {
+                  "title": "**Definition:** A multi-way channel switch — `select` blocks until **one** of its cases (a send or receive on different channels) can proceed, then runs that case. An optional `default` branch makes the whole construct non-blocking; a `time.After(d)` arm gives it a timeout.<br/>**Trade-offs:** The only way to wait on multiple channels at once and the foundation of every cancellation/timeout pattern in idiomatic Go, but with N ready cases the runtime picks pseudo-randomly among them — code that depends on case ordering is a bug. A bare `select {}` (no cases) blocks forever, occasionally useful as a \"park forever\" idiom.<br/>**Application Example:** A worker reading from `jobs` while honouring cancellation: `select { case job := <-jobs: process(job); case <-ctx.Done(): return }`. Add a `case <-time.After(5*time.Second): handleStall()` arm and you also get a per-iteration deadline."
+                }
+              ]
             },
             {
               "title": "Goroutine leaks",
