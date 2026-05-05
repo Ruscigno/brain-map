@@ -623,6 +623,9 @@ def walk_and_apply(node: dict, path: list[str], missing: list[str], applied: int
         for c in children:
             applied = walk_and_apply(c, path + [c["title"]], missing, applied)
         return applied
+    # Skip detail leaves that we already added in a previous run.
+    if isinstance(node.get("title"), str) and node["title"].startswith("**Definition:**"):
+        return applied
     # leaf
     full_path = " > ".join(path)
     if full_path not in DETAILS:
