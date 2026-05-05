@@ -1706,10 +1706,78 @@
           ]
         },
         {
+          "title": "Struct vs Slice vs Map",
+          "note": "The three core composite types every Go program leans on. Pick by **access pattern**, not familiarity.",
+          "children": [
+            {
+              "title": "Struct",
+              "children": [
+                {
+                  "title": "**Definition:** A composite type that groups **named fields** of (possibly different) typed values into a single value: `type Point struct { X, Y float64 }`. Memory layout is contiguous and field access is a fixed offset — zero overhead vs. C structs.<br/>**Trade-offs:** Best for **fixed, named** sets of fields with strong typing — the compiler catches typos and shape changes. Adding a field anywhere is a recompile, structs aren't iterable without reflection, and field tags (`json:\"…\"`) are the only way to attach metadata.<br/>**Application Example:** `type User struct { ID int64; Email string; CreatedAt time.Time }` modelling a row of a `users` table — passed by pointer to mutating functions, by value when small and read-only."
+                }
+              ]
+            },
+            {
+              "title": "Slice",
+              "children": [
+                {
+                  "title": "**Definition:** A dynamically-sized, ordered sequence of one type, backed by an underlying array. Internally a 3-word header `{pointer, length, capacity}`. `append(s, v)` grows it, doubling capacity when full.<br/>**Trade-offs:** O(1) indexed access and amortised O(1) append, but **slice headers share the underlying array** — `s[1:3]` aliases `s`, so a downstream `append` can clobber the parent (the classic Go gotcha). The zero-value (`nil` slice) is usable for reads and `append`, which is unusual and pleasant.<br/>**Application Example:** `var orders []*Order; orders = append(orders, newOrder)` accumulating results; `for i, o := range orders { ... }` to iterate; `orders[:0]` to reuse the backing array for the next batch without re-allocating."
+                }
+              ]
+            },
+            {
+              "title": "Map",
+              "children": [
+                {
+                  "title": "**Definition:** An unordered hash table of `K → V`, declared `map[K]V`. The zero value of a map is `nil` — reads return the value zero, but writes **panic** until you `make(map[K]V)`.<br/>**Trade-offs:** O(1) average lookup/insert, but **iteration order is randomised by design** (hardens code against accidental ordering dependencies), maps are **not safe for concurrent use** (need `sync.RWMutex` or `sync.Map`), and the underlying buckets grow but never shrink — peak footprint is sticky after deletions.<br/>**Application Example:** A request-scoped cache `attrs := make(map[string]string)`; a counter `counts := map[string]int{}` with `counts[k]++`. For concurrent reads/writes wrap with a `sync.RWMutex`, or use `sync.Map` for read-mostly workloads."
+                }
+              ]
+            },
+            {
+              "title": "Choosing between them",
+              "children": [
+                {
+                  "title": "**Definition:** Pick **struct** for fixed shapes with named fields, **slice** for ordered same-typed sequences, **map** for keyed lookups. They compose freely — `[]User`, `map[string][]User`, `struct { items []Item }`.<br/>**Trade-offs:** Each excels at a single access pattern and falls over the others. Reaching for `map[string]any` to model a fixed schema is a smell — you lose type safety and editor autocomplete. Reaching for `[]struct{ Key, Value string }` instead of `map` is a smell when you need O(1) lookup.<br/>**Application Example:** A user profile = `User struct`; their post timeline = `[]Post` (slice — ordered by creation); their followers' IDs = `map[int64]struct{}` (set semantics — O(1) membership check, zero-byte values)."
+                }
+              ]
+            }
+          ]
+        },
+        {
           "title": "Interfaces & composition",
           "children": [
             {
               "title": "**Definition:** Interfaces are satisfied **structurally** (no `implements` keyword); composition via embedding replaces inheritance.<br/>**Trade-offs:** Tiny interfaces (`io.Reader`, `error`) compose cleanly across the ecosystem, but accidental satisfaction can surprise — and \"interface bloat\" near the call site is a smell.<br/>**Application Example:** `func process(r io.Reader) error` accepting any `Read`-er — files, network, in-memory buffers — without knowing or caring about the concrete type."
+            }
+          ]
+        },
+        {
+          "title": "Composition vs Inheritance",
+          "note": "Why Go has no `class extends`. Same code-reuse goals, very different trade-offs from classical OO.",
+          "children": [
+            {
+              "title": "Inheritance (the OO baseline)",
+              "children": [
+                {
+                  "title": "**Definition:** Classical OO mechanism where a child class derives from a parent class, automatically getting its fields and methods, and can override behaviour with **virtual dispatch**.<br/>**Trade-offs:** Powerful for natural \"is-a\" hierarchies and minimal boilerplate at first, but couples derived classes to their parents in fragile ways — changes to the base class ripple outward (fragile-base-class problem), the **diamond problem** kicks in with multiple inheritance, and polymorphic dispatch can hide where behaviour actually lives.<br/>**Application Example:** Java's `class Manager extends Employee` getting `name`, `salary`, and `pay()` for free; overriding `pay()` to add a bonus. Works until `Manager` and `Contractor` need to share something `Employee` doesn't have — and you reach for multiple inheritance, mixins, or traits."
+                }
+              ]
+            },
+            {
+              "title": "Composition / Embedding (Go's approach)",
+              "children": [
+                {
+                  "title": "**Definition:** Go's struct embedding inserts another type as an **anonymous field**; the outer struct gains the embedded type's fields and methods via **promotion**, but there's no virtual dispatch — no `super`, no `override`. Interface embedding works the same way for interface composition.<br/>**Trade-offs:** Flat, explicit, and refactor-friendly — every method's location is unambiguous and changes don't cascade unpredictably. The cost: more typing for genuine \"is-a\" cases, no late-binding polymorphism via base classes (you lean on **interfaces** for that), and method-name collisions you must resolve by hand.<br/>**Application Example:** `type Manager struct { Employee; Reports []*Employee }` — `m.Pay()` calls `Employee.Pay()` for free; if `Manager` defines its own `Pay()`, it shadows the embedded one. For polymorphism, define an `interface{ Pay() float64 }` and pass any struct that implements it."
+                }
+              ]
+            },
+            {
+              "title": "When to pick which",
+              "children": [
+                {
+                  "title": "**Definition:** Go's idiom — **prefer composition (embedding) for code reuse and interfaces for polymorphism**. Reach for inheritance-style modelling only when wrapping an external system that genuinely has a deep hierarchy.<br/>**Trade-offs:** Composition makes intent explicit and refactors safer, but newcomers from OO languages instinctively reach for inheritance and end up fighting the type system. Interfaces look \"weakly typed\" because of structural satisfaction (any struct with the right methods qualifies, even by accident).<br/>**Application Example:** Designing a new `notifier` package — instead of an abstract base class, define `type Notifier interface { Notify(ctx context.Context, msg string) error }`. Each backend (`EmailNotifier`, `SlackNotifier`, `WebhookNotifier`) is a struct with one method. New backends require no inheritance, just a struct that implements the interface."
+                }
+              ]
             }
           ]
         },
