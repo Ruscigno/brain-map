@@ -1,0 +1,356 @@
+{
+  "title": "System Design Interview Concepts for Senior Software Engineer",
+  "subtitle": "An interactive mind map of core topics, sub-topics, and trade-offs.",
+  "children": [
+    {
+      "title": "Scalability and Load",
+      "note": "How to grow a system to handle more traffic and data.",
+      "children": [
+        {
+          "title": "Vertical Scalability (Scaling Up)",
+          "note": "**Pros:** Simple — no architecture changes. **Cons:** Hardware ceiling, exponential cost, **Single Point of Failure**."
+        },
+        {
+          "title": "Horizontal Scalability (Scaling Out)",
+          "note": "**Pros:** Resilient, theoretically infinite. **Cons:** Requires **stateless** apps, load balancing, network complexity."
+        },
+        {
+          "title": "Load Balancers",
+          "note": "Orchestrator that distributes traffic across instances.",
+          "children": [
+            {
+              "title": "Algorithms",
+              "children": [
+                { "title": "Round Robin", "note": "Simple; ignores current load." },
+                { "title": "Least Connections", "note": "Sends to the least busy server — ideal for long sessions." },
+                { "title": "IP Hash", "note": "Same user always lands on the same server (sticky sessions)." }
+              ]
+            },
+            {
+              "title": "Layers",
+              "children": [
+                { "title": "Layer 4 (TCP)", "note": "Routes by IP/port — fast, protocol-agnostic." },
+                { "title": "Layer 7 (HTTP)", "note": "Routes by URL/headers/cookies — smarter, slightly slower." }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Statelessness",
+          "note": "App layer must be stateless. Move sessions to **Redis / Memcached / DB** so any instance can serve any request."
+        }
+      ]
+    },
+    {
+      "title": "CAP and PACELC Theorems",
+      "note": "Trade-offs under network partitions and normal operation.",
+      "children": [
+        { "title": "Consistency", "note": "Every read returns the latest write or an error." },
+        { "title": "Availability", "note": "Every request gets a non-error response." },
+        { "title": "Partition Tolerance", "note": "System keeps working despite dropped messages between nodes." },
+        { "title": "PACELC", "note": "Else (no partition): trade Latency vs. Consistency." }
+      ]
+    },
+    {
+      "title": "Databases and Storage",
+      "note": "Pick the model that fits the access pattern.",
+      "children": [
+        {
+          "title": "SQL (Relational, ACID)",
+          "note": "Structured data, complex joins, strong consistency. ACID guarantees make these the safe default for money, inventory, and anything with invariants you cannot violate.",
+          "children": [
+            {
+              "title": "ACID — what each letter means",
+              "children": [
+                { "title": "A — Atomicity", "note": "A transaction is all-or-nothing. Partial updates never persist; if any step fails, the whole transaction is rolled back. Example: debit account A, credit account B — both happen or neither." },
+                { "title": "C — Consistency", "note": "A transaction takes the database from one valid state to another, respecting all rules (constraints, foreign keys, triggers). The DB never ends up in a state that violates its invariants." },
+                { "title": "I — Isolation", "note": "Concurrent transactions don't interfere with each other; the result must look as if they ran one after another. Tunable via isolation levels (Read Uncommitted → Serializable) — stronger isolation, lower throughput." },
+                { "title": "D — Durability", "note": "Once a transaction commits, it survives crashes, power loss, or restarts. Achieved via write-ahead logs (WAL), fsync, replication." }
+              ]
+            },
+            { "title": "Examples", "note": "PostgreSQL, MySQL, SQL Server, Oracle." }
+          ]
+        },
+        {
+          "title": "NoSQL",
+          "children": [
+            { "title": "Key-Value", "note": "Redis, DynamoDB — simple lookups, very fast." },
+            { "title": "Document", "note": "MongoDB — flexible schemas, JSON-like." },
+            { "title": "Columnar", "note": "Cassandra, BigQuery — analytics, wide rows." },
+            { "title": "Graph", "note": "Neo4j — relationships first-class." }
+          ]
+        },
+        { "title": "Read Replicas", "note": "Scale reads before reaching for sharding." },
+        { "title": "Indexes & Query Optimization", "note": "First lever before scaling out." }
+      ]
+    },
+    {
+      "title": "Caching Strategies",
+      "note": "Trade freshness for latency at multiple layers.",
+      "children": [
+        {
+          "title": "Patterns",
+          "children": [
+            { "title": "Read-through", "note": "App always asks the **cache**; on a miss, the cache itself fetches from the DB, stores the result, and returns it. App stays simple. Risk: first request is slow (cold cache); cache library must know how to query the source." },
+            { "title": "Write-through", "note": "Every write goes to **cache and DB synchronously** before returning success. Cache is always fresh, but writes are slower (two round-trips). Good when read-after-write must always hit a warm cache." },
+            { "title": "Write-back (Write-behind)", "note": "Writes go to the **cache only**; the cache flushes to the DB asynchronously in batches. Very fast writes and great for write-heavy workloads, but a cache crash before flush = **data loss**. Needs durable cache or an outbox." },
+            { "title": "Cache-aside (Lazy loading)", "note": "App checks the cache; on a miss it queries the DB, then writes the value back to the cache. The most common pattern (Redis). App code is in charge — flexible, but easy to get wrong (stale entries, thundering herd on miss)." }
+          ]
+        },
+        {
+          "title": "Eviction Policies",
+          "note": "When the cache is full, which key gets dropped?",
+          "children": [
+            { "title": "LRU — Least Recently Used", "note": "Evict the entry untouched for the longest time. Great default — assumes recently-used items will be used again. Used by Redis (`allkeys-lru`), Memcached, most CPU caches." },
+            { "title": "LFU — Least Frequently Used", "note": "Evict the entry with the **fewest accesses**. Better when popularity is stable (e.g., a few hot keys dominate). Worse when popularity shifts — old hits keep new entries out." },
+            { "title": "TTL — Time To Live", "note": "Each entry has an expiration timestamp; once it passes, the entry is evicted regardless of usage. Use when freshness matters more than popularity (sessions, tokens, rate-limit counters). Often **combined** with LRU/LFU." },
+            { "title": "FIFO / Random", "note": "FIFO evicts the oldest insert; Random picks any key. Cheap to implement; rarely a good fit on their own but used as fallbacks." }
+          ]
+        },
+        {
+          "title": "Layers",
+          "note": "Caches stack — closer to the user = faster + cheaper.",
+          "children": [
+            { "title": "CDN (edge)", "note": "Caches static assets (JS, CSS, images, video) in PoPs near users. Dramatic latency wins, offloads origin. Examples: Cloudflare, Fastly, CloudFront. Trade-off: invalidation is harder the further from origin you cache." },
+            { "title": "Application (in-memory)", "note": "Cache lives inside the service process or a shared store (Redis, Memcached). Microsecond reads, perfect for hot DB query results, sessions, computed views. Trade-off: consistency between instances + memory cost." },
+            { "title": "Database (query/result cache)", "note": "DB engine caches query plans, page buffers, and result sets. Mostly automatic — your job is to give it enough RAM and write good queries. Trade-off: invalidated aggressively on writes; not a substitute for an app-level cache." }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Messaging and Event-Driven Design",
+      "note": "Decouple producers from consumers; absorb spikes; build resilience.",
+      "children": [
+        {
+          "title": "Architectural comparison — with vs. without Msg/EDD",
+          "note": "The same use case (\"a user signs up\") looks very different in each style.",
+          "children": [
+            {
+              "title": "WITHOUT Messaging / EDD (synchronous chain)",
+              "note": "**API → Auth → Email → Billing → Analytics**, all in one request. Pros: trivial to reason about, easy to test, immediate feedback. Cons: tight coupling — if Billing is down the signup fails; latency = sum of all services; spikes overwhelm downstream; hard to add a 6th step without touching the API.",
+              "children": [
+                { "title": "Symptom", "note": "Cascading failures, retries on the user request, timeouts." },
+                { "title": "Fits when", "note": "Small system, few services, low traffic, strong-consistency demand." }
+              ]
+            },
+            {
+              "title": "WITH Messaging / EDD (asynchronous events)",
+              "note": "**API → Auth (commits) → publishes `UserSignedUp`**. Email, Billing, Analytics each subscribe and react independently. Pros: producers don't know consumers; queues absorb spikes; one consumer can fail/retry without breaking signup; trivial to add a 6th subscriber. Cons: eventual consistency, harder debugging (distributed traces become essential), need idempotent consumers and a dead-letter strategy.",
+              "children": [
+                { "title": "Symptom", "note": "Lag in queues, duplicate deliveries — but the core flow stays up." },
+                { "title": "Fits when", "note": "Many consumers, spiky load, independent failure domains, event-sourcing or audit needs." }
+              ]
+            }
+          ]
+        },
+        { "title": "Queues", "note": "Point-to-point, work distribution (RabbitMQ, SQS)." },
+        { "title": "Pub/Sub", "note": "Fan-out to many subscribers (Kafka, Pub/Sub)." },
+        { "title": "Kafka", "note": "Durable log, replay, partitioned consumers." },
+        { "title": "RabbitMQ", "note": "Flexible routing, ack semantics, classic broker." },
+        { "title": "Async Processing", "note": "Background jobs, retries, dead-letter queues." }
+      ]
+    },
+    {
+      "title": "Sharding and Partitioning",
+      "note": "Split a large dataset across nodes to remove the single-DB bottleneck.",
+      "children": [
+        { "title": "Range-based", "note": "Easy to understand, risk of hot ranges." },
+        { "title": "Hash-based", "note": "Even spread, harder range queries." },
+        { "title": "Geo / Directory", "note": "Locality and explicit routing." },
+        { "title": "Consistent Hashing", "note": "Minimizes re-shuffling when nodes change." },
+        { "title": "Hot Partitions", "note": "Watch for skew; salt keys when needed." },
+        {
+          "title": "Consistency trade-offs",
+          "note": "Once your data is split across nodes, **strong consistency becomes expensive**. The hard parts are not lookups — they're the operations that span shards.",
+          "children": [
+            { "title": "Single-shard ops are easy", "note": "If a transaction touches only one shard, that shard's local ACID guarantees still apply — fast and consistent." },
+            { "title": "Cross-shard transactions are costly", "note": "Atomic writes across shards need **2-Phase Commit (2PC)** or sagas. 2PC is slow, blocks on coordinator failure, and reduces availability. Most systems avoid it." },
+            { "title": "Sagas as a pragmatic alternative", "note": "Replace one big distributed transaction with a sequence of local transactions + **compensating actions** on failure. You buy availability and trade away atomicity — eventual consistency is the new normal." },
+            { "title": "Cross-shard reads & joins", "note": "Joining or aggregating across shards = scatter-gather. Latency is bounded by the slowest shard; results may reflect different points in time → **read-your-writes anomalies**." },
+            { "title": "Rebalancing (resharding)", "note": "Adding/removing shards moves data while traffic flows. During the move, reads can hit the old or new location — design for double-writes, idempotent migrations, and cutover windows." },
+            { "title": "Choosing the shard key matters most", "note": "A bad key creates **hot shards** (all writes to one) or forces every query to fan out. The key should match your dominant access pattern, not what's convenient to index." },
+            { "title": "Rule of thumb", "note": "Keep transactional boundaries **inside** a shard; accept eventual consistency **across** shards; expose only idempotent cross-shard operations to clients." }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Microservices and Communication",
+      "note": "Independent services collaborating over the network.",
+      "children": [
+        {
+          "title": "Sync Protocols",
+          "children": [
+            { "title": "REST", "note": "Ubiquitous, cacheable, human-friendly." },
+            { "title": "gRPC", "note": "Binary, fast, schema-first (Protobuf)." },
+            { "title": "GraphQL", "note": "Client-driven queries, single endpoint." }
+          ]
+        },
+        {
+          "title": "Service Discovery",
+          "note": "**The problem:** in a dynamic system, service instances come and go (auto-scaling, deploys, crashes). Hard-coding `billing-service:8080` doesn't work — that IP/port changes constantly. Service Discovery is how a caller finds **a healthy instance** of a target service at runtime.",
+          "children": [
+            {
+              "title": "The two core pieces",
+              "children": [
+                { "title": "Service Registry", "note": "A live database of `{ service-name → [healthy instance URLs] }`. Each instance **registers itself on startup** (\"I'm `billing` at 10.0.1.42:8080\") and **deregisters on shutdown**. The registry continuously **health-checks** each instance and removes the dead ones." },
+                { "title": "Discovery (the lookup)", "note": "When service A wants to call service B, it asks the registry \"give me an instance of B\" instead of using a fixed address. The registry returns one (or a list, with load-balancing applied)." }
+              ]
+            },
+            {
+              "title": "Two main patterns",
+              "children": [
+                { "title": "Client-side discovery", "note": "The **caller** queries the registry, picks an instance (with its own load-balancing logic), then calls it directly. Pros: one fewer hop, smart client-side routing. Cons: every client/language needs the discovery library; logic duplicated. Example: Netflix Eureka + Ribbon." },
+                { "title": "Server-side discovery", "note": "The caller hits a **fixed address** (a load balancer or API gateway); that component queries the registry and forwards the request. Pros: clients stay dumb, single language-agnostic place to configure routing. Cons: extra hop, the LB itself must be HA. Examples: AWS ALB + ECS, Kubernetes Service + kube-proxy." }
+              ]
+            },
+            {
+              "title": "Common implementations",
+              "children": [
+                { "title": "Kubernetes (DNS-based)", "note": "Most teams use this today. Each Service gets a stable internal DNS name (`billing.default.svc.cluster.local`). kube-proxy load-balances across the healthy pods behind it. **You get service discovery for free** by deploying on K8s — no extra component to run." },
+                { "title": "Consul", "note": "HashiCorp's standalone registry. Strong health checks, multi-datacenter, KV store, can do DNS or HTTP lookups. Good when you're not on K8s or need cross-cluster discovery." },
+                { "title": "Eureka", "note": "Netflix's registry, popular in older Spring Cloud stacks. Client-side discovery model. Largely superseded by K8s and service meshes." },
+                { "title": "Service Mesh (Istio, Linkerd)", "note": "A sidecar proxy next to each pod handles discovery, load-balancing, retries, mTLS, and observability — the application code does nothing. Heaviest option but most powerful." }
+              ]
+            },
+            {
+              "title": "Health checks — the unsung hero",
+              "note": "A registry is only useful if it knows what's actually alive.",
+              "children": [
+                { "title": "Liveness", "note": "\"Is the process running?\" If it fails, restart the instance." },
+                { "title": "Readiness", "note": "\"Is the process ready to serve traffic?\" (DB connected, cache warm, migrations done.) If it fails, **remove from the pool but don't kill** — the instance is starting up or temporarily overloaded." }
+              ]
+            },
+            { "title": "Why senior engineers care", "note": "Service Discovery is the foundation that makes **horizontal scaling, zero-downtime deploys, and self-healing** actually work. Without it, every deploy or autoscale event would break callers." }
+          ]
+        },
+        { "title": "API Gateway", "note": "Auth, rate-limit, routing, aggregation." }
+      ]
+    },
+    {
+      "title": "Resilience and Fault Tolerance",
+      "note": "Prevent local failures from cascading.",
+      "children": [
+        { "title": "Circuit Breaker", "note": "Open the circuit on repeated failures, fail fast." },
+        { "title": "Retries with Exponential Backoff", "note": "Add jitter; cap attempts." },
+        { "title": "Bulkheads", "note": "Isolate resources so one failure can't drown others." },
+        { "title": "Timeouts", "note": "Always set them — never block forever." },
+        { "title": "Idempotency", "note": "Safe retries for write operations." }
+      ]
+    },
+    {
+      "title": "Object Storage and CDNs",
+      "note": "When files don't belong in a database.",
+      "children": [
+        { "title": "S3-like Object Storage", "note": "Cheap, durable, unstructured blobs." },
+        { "title": "CDN", "note": "Edge caching for static assets and media." },
+        { "title": "When NOT a DB", "note": "Large media, backups, logs, archives." }
+      ]
+    },
+    {
+      "title": "Observability and Monitoring",
+      "note": "You can only fix what you can see.",
+      "children": [
+        {
+          "title": "Metrics",
+          "note": "Numerical, time-stamped measurements. Cheap to store and aggregate, perfect for dashboards and alerts. Tools: **Prometheus**, Datadog, CloudWatch. Tie them to **SLIs/SLOs** so you alert on user-facing pain, not internal noise.",
+          "children": [
+            {
+              "title": "RED (for request-driven services)",
+              "note": "Best general framework for HTTP/RPC services.",
+              "children": [
+                { "title": "Rate", "note": "Requests per second, broken down by endpoint and status." },
+                { "title": "Errors", "note": "Failure rate (5xx, exceptions, business errors). Alert on the **ratio**, not the absolute count." },
+                { "title": "Duration", "note": "Latency distribution — track **p50, p95, p99**, never just the mean." }
+              ]
+            },
+            {
+              "title": "USE (for resources / hardware)",
+              "note": "Best for CPUs, disks, queues, connection pools.",
+              "children": [
+                { "title": "Utilization", "note": "% of time the resource is busy." },
+                { "title": "Saturation", "note": "Backlog / queue depth. The early warning before utilization hits 100%." },
+                { "title": "Errors", "note": "Resource-level errors (disk I/O errors, dropped packets, OOM kills)." }
+              ]
+            },
+            {
+              "title": "Four Golden Signals (Google SRE)",
+              "note": "Almost the same as RED + saturation — what to watch on every service.",
+              "children": [
+                { "title": "Latency" },
+                { "title": "Traffic" },
+                { "title": "Errors" },
+                { "title": "Saturation" }
+              ]
+            },
+            {
+              "title": "Infrastructure metrics",
+              "children": [
+                { "title": "CPU & load average" },
+                { "title": "Memory (used / available, swap)" },
+                { "title": "Disk (IOPS, latency, free space)" },
+                { "title": "Network (throughput, errors, retransmits)" }
+              ]
+            },
+            {
+              "title": "Application / runtime metrics",
+              "children": [
+                { "title": "GC pauses, heap usage" },
+                { "title": "Thread / goroutine counts" },
+                { "title": "DB connection pool: active / idle / waiting" },
+                { "title": "Cache hit ratio" }
+              ]
+            },
+            {
+              "title": "Business / product metrics",
+              "note": "The ones the business actually cares about — and the strongest signal that something is broken.",
+              "children": [
+                { "title": "Sign-ups, logins, checkouts per minute" },
+                { "title": "Payment success rate" },
+                { "title": "Active users, conversion funnels" }
+              ]
+            },
+            {
+              "title": "Practical guidance",
+              "children": [
+                { "title": "Alert on symptoms, not causes", "note": "Page on \"checkout error rate > 1%\", not on \"CPU 80%\"." },
+                { "title": "Always use percentiles for latency", "note": "Means hide tail latency that hurts real users." },
+                { "title": "Label / tag carefully", "note": "By service, endpoint, version, region — but watch cardinality (each unique combo is a time-series)." }
+              ]
+            }
+          ]
+        },
+        { "title": "Centralized Logs", "note": "ELK, Loki — searchable, structured." },
+        { "title": "Distributed Tracing", "note": "Jaeger, OpenTelemetry — request paths across services." },
+        { "title": "Alerting", "note": "Page on symptoms (latency, error rate), not causes." }
+      ]
+    },
+    {
+      "title": "Decomposition Strategies (Monolith → Microservices)",
+      "note": "How to evolve safely without a Big-Bang rewrite.",
+      "children": [
+        { "title": "By Functionality", "note": "Cut along the **technical features** of the existing app — \"the auth module\", \"the email module\", \"the reporting module\". Easy to spot from the codebase (one folder = one service). Risk: those modules were drawn for the convenience of developers, not the business — services may share data and constantly call each other, recreating the monolith over the network." },
+        {
+          "title": "Domain-Driven Design (DDD)",
+          "note": "Cut along **business capabilities** instead of code modules. Each service owns a **Bounded Context** with its own model and language; teams talk to domain experts to find these seams. Harder to discover but produces services that are genuinely independent.",
+          "children": [
+            {
+              "title": "How DDD differs from \"By Functionality\"",
+              "children": [
+                { "title": "Starting point", "note": "**Functionality:** the current code structure. **DDD:** the business — events, processes, who-does-what. The boundary is discovered by talking to the people who run the business, not by reading the repo." },
+                { "title": "Boundaries", "note": "**Functionality:** technical layers (auth, email, reporting). **DDD:** **Bounded Contexts** — e.g., \"Sales\", \"Shipping\", \"Billing\" — each with its own model. The same word (\"Customer\") can mean different things in different contexts, and that's allowed." },
+                { "title": "Shared model", "note": "**Functionality:** services often share a giant DB or DTOs → invisible coupling. **DDD:** each context owns its data; integration goes through explicit contracts (events, anti-corruption layers). No shared schema." },
+                { "title": "Language", "note": "**Functionality:** developer terms. **DDD:** **Ubiquitous Language** — code, docs, and conversations all use the same business vocabulary, avoiding translation bugs between business and engineering." },
+                { "title": "Outcome", "note": "**Functionality** often produces a *distributed monolith* — many small services that must deploy together. **DDD** produces **autonomous** services aligned to teams and business goals (Conway's Law working for you, not against you)." },
+                { "title": "Cost", "note": "DDD is **slower up front** — workshops, event storming, modeling. It pays back when teams can ship independently and the system can evolve without rewriting boundaries." }
+              ]
+            }
+          ]
+        },
+        { "title": "Strangler Fig Pattern", "note": "Route slices of traffic to new services; retire old paths gradually." },
+        { "title": "Data Decomposition", "note": "Hardest part — decouple shared databases first." }
+      ]
+    }
+  ]
+}

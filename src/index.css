@@ -1,0 +1,50 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Markmap stroke widths and link colors look better with a small bump. */
+.markmap-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Smooth animation feel when expanding/collapsing nodes. */
+.markmap-foreign {
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+/* Light-mode tuning */
+.markmap-foreign div {
+  color: #0f172a; /* slate-900 */
+}
+.markmap-foreign em {
+  color: #475569; /* slate-600 */
+  font-weight: 400;
+}
+
+/* Dark-mode tuning */
+.dark .markmap-foreign div {
+  color: #e2e8f0; /* slate-200 */
+}
+.dark .markmap-foreign em {
+  color: #94a3b8; /* slate-400 */
+}
+.dark .markmap-svg path {
+  /* keep markmap's branch colors but soften background lines slightly */
+  stroke-opacity: 0.95;
+}
