@@ -98,11 +98,7 @@ export default function App() {
           </CenteredMessage>
         )}
         {status.kind === 'ready' && filterResult && filterResult.data && (
-          <MindMap
-            data={filterResult.data}
-            expandAll={filterResult.active}
-            onReady={onReady}
-          />
+          <MindMap data={filterResult.data} onReady={onReady} />
         )}
         {status.kind === 'ready' && filterResult && filterResult.data === null && (
           <CenteredMessage>

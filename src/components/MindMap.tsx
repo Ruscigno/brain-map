@@ -15,15 +15,12 @@ export interface MindMapHandle {
 
 interface Props {
   data: MindMapData;
-  /** When true, render every node expanded — used while a filter is active so
-   *  matches at any depth are immediately visible. */
-  expandAll?: boolean;
   onReady?: (handle: MindMapHandle) => void;
 }
 
 const transformer = new Transformer();
 
-export default function MindMap({ data, expandAll, onReady }: Props) {
+export default function MindMap({ data, onReady }: Props) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const mmRef = useRef<Markmap | null>(null);
   const rootRef = useRef<IPureNode | null>(null);
@@ -42,7 +39,7 @@ export default function MindMap({ data, expandAll, onReady }: Props) {
       paddingX: 12,
       spacingHorizontal: 90,
       spacingVertical: 12,
-      initialExpandLevel: expandAll ? -1 : 2,
+      initialExpandLevel: 2,
     });
 
     const mm = Markmap.create(svgRef.current, options, root);
@@ -81,7 +78,7 @@ export default function MindMap({ data, expandAll, onReady }: Props) {
       mmRef.current = null;
       rootRef.current = null;
     };
-  }, [data, expandAll, onReady]);
+  }, [data, onReady]);
 
   return <svg ref={svgRef} className="markmap-svg" />;
 }
