@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import MindMap, { type MindMapHandle } from './components/MindMap';
 import Toolbar from './components/Toolbar';
 import { loadMindMap } from './lib/loadData';
+import { buildIndex, filterTree } from './lib/filterTree';
 import type { MindMapData } from './lib/types';
 
 type Status =
@@ -19,6 +20,10 @@ export default function App() {
     if (stored === 'light' || stored === 'dark') return stored;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   });
+
+  // Search state — `query` is the live input, `submittedQuery` is what's actually applied.
+  const [query, setQuery] = useState('');
+  const [submittedQuery, setSubmittedQuery] = useState('');
 
   useEffect(() => {
     const root = document.documentElement;
@@ -40,16 +45,31 @@ export default function App() {
     };
   }, []);
 
+  // Build the Fuse index once per loaded dataset.
+  const index = useMemo(() => {
+    if (status.kind !== 'ready') return null;
+    return buildIndex(status.data);
+  }, [status]);
+
+  // Apply the current filter.
+  const filterResult = useMemo(() => {
+    if (status.kind !== 'ready' || !index) return null;
+    return filterTree(status.data, index, submittedQuery);
+  }, [status, index, submittedQuery]);
+
   const onReady = useCallback((h: MindMapHandle) => setHandle(h), []);
   const onToggleTheme = useCallback(
     () => setTheme((t) => (t === 'dark' ? 'light' : 'dark')),
     [],
   );
+  const onFilter = useCallback(() => setSubmittedQuery(query), [query]);
+  const onClearFilter = useCallback(() => {
+    setQuery('');
+    setSubmittedQuery('');
+  }, []);
 
-  const title =
-    status.kind === 'ready' ? status.data.title : 'Brain Map';
-  const subtitle =
-    status.kind === 'ready' ? status.data.subtitle : undefined;
+  const title = status.kind === 'ready' ? status.data.title : 'Brain Map';
+  const subtitle = status.kind === 'ready' ? status.data.subtitle : undefined;
 
   return (
     <>
@@ -59,6 +79,12 @@ export default function App() {
         handle={handle}
         theme={theme}
         onToggleTheme={onToggleTheme}
+        query={query}
+        onQueryChange={setQuery}
+        onFilter={onFilter}
+        onClearFilter={onClearFilter}
+        filterActive={filterResult?.active ?? false}
+        matchCount={filterResult?.matchCount ?? -1}
       />
       <main className="relative flex-1 overflow-hidden">
         {status.kind === 'loading' && <CenteredMessage>Loading mind map…</CenteredMessage>}
@@ -71,7 +97,21 @@ export default function App() {
             </span>
           </CenteredMessage>
         )}
-        {status.kind === 'ready' && <MindMap data={status.data} onReady={onReady} />}
+        {status.kind === 'ready' && filterResult && filterResult.data && (
+          <MindMap
+            data={filterResult.data}
+            expandAll={filterResult.active}
+            onReady={onReady}
+          />
+        )}
+        {status.kind === 'ready' && filterResult && filterResult.data === null && (
+          <CenteredMessage>
+            <strong className="block text-base font-semibold">No matches</strong>
+            <span className="mt-1 block text-sm">
+              Nothing matched <code>{submittedQuery}</code> — try a different keyword or clear the filter.
+            </span>
+          </CenteredMessage>
+        )}
       </main>
     </>
   );
